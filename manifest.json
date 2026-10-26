@@ -1,0 +1,19 @@
+{
+  "name": "Gemini Web Client",
+  "short_name": "Gemini Chat",
+  "description": "A responsive Gemini-powered AI chat client.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#131314",
+  "theme_color": "#131314",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
