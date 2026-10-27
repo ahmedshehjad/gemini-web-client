@@ -1,0 +1,13 @@
+{
+  "name": "gemini-web-client-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Server-side Gemini API proxy for the GitHub Pages chat client",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
