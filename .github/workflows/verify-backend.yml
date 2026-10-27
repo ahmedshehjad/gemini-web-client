@@ -1,0 +1,88 @@
+name: Verify live AI backend
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server.js"
+      - ".github/workflows/verify-backend.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backend-chat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for backend health
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent --show-error --max-time 20 https://gemini-web-client-api.onrender.com/health -o health.json; then
+              break
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              echo "Backend health endpoint did not respond after retries."
+              exit 1
+            fi
+            sleep 5
+          done
+          cat health.json
+          python3 - <<'PY'
+          import json
+          with open("health.json", encoding="utf-8") as f:
+              health = json.load(f)
+          if health.get("ok") is not True:
+              raise SystemExit("Backend health check failed.")
+          if health.get("apiKeyConfigured") is not True:
+              raise SystemExit("GEMINI_API_KEY is missing in the server environment.")
+          print("Backend is live and reports its API secret is configured.")
+          PY
+      - name: Verify free model list
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 https://gemini-web-client-api.onrender.com/api/models -o models.json
+          cat models.json
+          python3 - <<'PY'
+          import json
+          with open("models.json", encoding="utf-8") as f:
+              models = json.load(f).get("models", [])
+          required = {"gemini-3.8-flash", "gemini-3.1-flash-lite"}
+          missing = required.difference(models)
+          if missing:
+              raise SystemExit("Missing expected model(s): " + ", ".join(sorted(missing)))
+          print("Expected free-tier Gemini models are exposed by the backend.")
+          PY
+      - name: Verify a real Gemini chat response
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 100 \
+            -H "Content-Type: application/json" \
+            --data '{"model":"gemini-3.8-flash","contents":[{"role":"user","parts":[{"text":"Reply with exactly OK."}]}],"generationConfig":{"temperature":0,"maxOutputTokens":16}}' \
+            https://gemini-web-client-api.onrender.com/api/chat -o chat.json
+          python3 - <<'PY'
+          import json
+          with open("chat.json", encoding="utf-8") as f:
+              data = json.load(f)
+          text = "".join(p.get("text", "") for p in data.get("candidates", [{}])[0].get("content", {}).get("parts", []))
+          if not text.strip():
+              raise SystemExit("Gemini returned no text.")
+          print("Real Gemini chat succeeded. Response text length:", len(text))
+          PY
+      - name: Probe free image endpoint
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --max-time 120 -D image-headers.txt -o probe-image.bin \
+            -H "Content-Type: application/json" -H "Accept: application/octet-stream" \
+            --data '{"prompt":"A single red apple on a clean white background, centered professional product photography, natural soft light"}' \
+            https://stable-diffusion-xl.endpoints.kepler.ai.cloud.ovh.net/api/text2image
+          cat image-headers.txt
+          python3 - <<'PY'
+          import os
+          headers = open("image-headers.txt", encoding="utf-8", errors="replace").read().lower()
+          size = os.path.getsize("probe-image.bin")
+          if "content-type: image/" not in headers or size < 1000:
+              raise SystemExit("The anonymous image endpoint did not return a valid image.")
+          print("Free image endpoint returned image bytes:", size)
+          PY
