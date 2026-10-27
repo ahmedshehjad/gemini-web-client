@@ -134,35 +134,47 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 90_000);
-    let upstream;
-    try {
-      upstream = await fetch(
-        "https://generativelanguage.googleapis.com/v1beta/models/" +
-          encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(API_KEY),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents,
-            generationConfig: body.generationConfig && typeof body.generationConfig === "object"
-              ? body.generationConfig : { temperature: 0.7, maxOutputTokens: 8192 }
-          }),
-          signal: controller.signal
-        }
-      );
-    } finally {
-      clearTimeout(timeout);
-    }
-    const data = await upstream.json().catch(() => ({}));
-    if (!upstream.ok) {
+    // If a free model is temporarily busy or rate-limited, try one other explicitly allowed free model.
+    const candidates = [model, ...[...ALLOWED_MODELS].filter(candidate => candidate !== model).slice(0, 1)];
+    for (let attempt = 0; attempt < candidates.length; attempt++) {
+      const candidate = candidates[attempt];
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 45_000);
+      let upstream;
+      try {
+        upstream = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/" +
+            encodeURIComponent(candidate) + ":generateContent?key=" + encodeURIComponent(API_KEY),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents,
+              generationConfig: body.generationConfig && typeof body.generationConfig === "object"
+                ? body.generationConfig : { temperature: 0.7, maxOutputTokens: 8192 }
+            }),
+            signal: controller.signal
+          }
+        );
+      } catch (err) {
+        if (attempt < candidates.length - 1) continue;
+        throw err;
+      } finally {
+        clearTimeout(timeout);
+      }
+      const data = await upstream.json().catch(() => ({}));
+      if (upstream.ok) {
+        if (candidate !== model) data._fallbackModel = candidate;
+        send(res, 200, data);
+        return;
+      }
+      const retryable = [429, 500, 502, 503, 504].includes(upstream.status);
+      if (retryable && attempt < candidates.length - 1) continue;
       const status = [400, 401, 403, 404, 429].includes(upstream.status) ? upstream.status : 502;
       const message = data?.error?.message || "The upstream AI provider rejected the request.";
       send(res, status, { error: message });
       return;
     }
-    send(res, 200, data);
   } catch (err) {
     const status = Number.isInteger(err.status) ? err.status : 502;
     const message = err.name === "AbortError"
