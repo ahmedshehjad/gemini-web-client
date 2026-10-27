@@ -56,14 +56,20 @@ jobs:
       - name: Verify a real Gemini chat response
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 100 \
+          status=$(curl --silent --show-error --max-time 100 -w '%{http_code}' \
             -H "Content-Type: application/json" \
             --data '{"model":"gemini-3.8-flash","contents":[{"role":"user","parts":[{"text":"Reply with exactly OK."}]}],"generationConfig":{"temperature":0,"maxOutputTokens":16}}' \
-            https://gemini-web-client-api.onrender.com/api/chat -o chat.json
+            https://gemini-web-client-api.onrender.com/api/chat -o chat.json)
+          echo "Gemini API HTTP status: $status"
+          echo "CHAT_STATUS=$status" >> "$GITHUB_ENV"
+          cat chat.json
           python3 - <<'PY'
-          import json
+          import json, os
+          status = os.environ.get("CHAT_STATUS", "")
           with open("chat.json", encoding="utf-8") as f:
               data = json.load(f)
+          if status != "200":
+              raise SystemExit("Gemini chat endpoint returned HTTP " + status + ".")
           text = "".join(p.get("text", "") for p in data.get("candidates", [{}])[0].get("content", {}).get("parts", []))
           if not text.strip():
               raise SystemExit("Gemini returned no text.")
