@@ -5,7 +5,7 @@ const PORT = Number(process.env.PORT || 10000);
 const API_KEY = process.env.GEMINI_API_KEY || "";
 const SITE_ORIGIN = process.env.SITE_ORIGIN || "https://ahmedshehjad.github.io";
 const ALLOWED_MODELS = new Set(
-  (process.env.GEMINI_ALLOWED_MODELS || "gemini-3.6-flash,gemini-3.1-flash-lite")
+  (process.env.GEMINI_ALLOWED_MODELS || "gemini-3.8-flash,gemini-3.1-flash-lite")
     .split(",").map(s => s.trim()).filter(Boolean)
 );
 const WINDOW_MS = 60_000;
