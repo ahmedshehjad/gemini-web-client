@@ -35,7 +35,8 @@
 const $=id=>document.getElementById(id);
 const state={chats:[],currentId:null,files:[],busy:false};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const API_BASE='https://gemini-web-client-api.onrender.com';\nlet lastUsedModel='';
+const API_BASE='https://gemini-web-client-api.onrender.com';
+let lastUsedModel='';
 const DEFAULT_MODELS=['gemini-3.8-flash','gemini-3.1-flash-lite'];
 let backendModels=DEFAULT_MODELS.slice();
 const getModel=()=>localStorage.getItem('gemini_model')||backendModels[0]||'gemini-3.8-flash';
