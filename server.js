@@ -99,6 +99,74 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+
+  if (req.method === "POST" && url.pathname === "/api/image") {
+    if (rateLimited(req)) {
+      send(res, 429, { error: "Too many requests. Please wait one minute and try again." });
+      return;
+    }
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || "";
+    const cloudflareToken = process.env.CLOUDFLARE_API_TOKEN || "";
+    if (!accountId || !cloudflareToken) {
+      send(res, 503, { error: "FLUX image generation is not configured yet. Add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to the backend environment." });
+      return;
+    }
+    try {
+      const body = await readJson(req);
+      const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+      if (!prompt || prompt.length > 2048) {
+        send(res, 400, { error: "A prompt between 1 and 2048 characters is required." });
+        return;
+      }
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 90_000);
+      let upstream;
+      try {
+        upstream = await fetch(
+          "https://api.cloudflare.com/client/v4/accounts/" +
+            encodeURIComponent(accountId) +
+            "/ai/run/@cf/black-forest-labs/flux-1-schnell",
+          {
+            method: "POST",
+            headers: {
+              "Authorization": "Bearer " + cloudflareToken,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ prompt, steps: 4 }),
+            signal: controller.signal
+          }
+        );
+      } finally {
+        clearTimeout(timeout);
+      }
+      const data = await upstream.json().catch(() => ({}));
+      if (!upstream.ok) {
+        const providerMessage = data?.errors?.map(e => e.message).filter(Boolean).join("; ");
+        const message = upstream.status === 429
+          ? "Cloudflare's free daily AI allowance or temporary capacity limit has been reached. Try again later."
+          : upstream.status === 403
+            ? "Cloudflare denied access to FLUX. Check that Workers AI is enabled and the API token has AI:Run permission."
+            : (providerMessage || "Cloudflare could not generate this image.");
+        const status = [400, 401, 403, 429].includes(upstream.status) ? upstream.status : 502;
+        send(res, status, { error: message });
+        return;
+      }
+      const image = data?.result?.image;
+      if (typeof image !== "string" || !image.length) {
+        send(res, 502, { error: "Cloudflare returned no image data." });
+        return;
+      }
+      send(res, 200, { dataUrl: "data:image/jpeg;base64," + image, model: "FLUX.1 schnell" });
+    } catch (err) {
+      const status = Number.isInteger(err.status) ? err.status : 502;
+      const message = err.name === "AbortError"
+        ? "Image generation timed out. Please try again."
+        : (status === 413 ? "Request body too large." : (status === 400 ? err.message : "The image service could not complete the request."));
+      send(res, status, { error: message });
+    }
+    return;
+  }
+
   if (req.method !== "POST" || url.pathname !== "/api/chat") {
     send(res, 404, { error: "Not found." });
     return;
