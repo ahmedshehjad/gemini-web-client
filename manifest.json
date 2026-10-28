@@ -10,10 +10,10 @@
   "theme_color": "#131314",
   "icons": [
     {
-      "src": "./icons/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "src": "./icons/openai-chat-icon.jpg",
+      "sizes": "96x96",
+      "type": "image/jpeg",
+      "purpose": "any"
     }
   ]
 }
