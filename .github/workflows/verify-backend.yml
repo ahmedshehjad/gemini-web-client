@@ -91,6 +91,40 @@ jobs:
           print("Real Gemini chat succeeded. Response text length:", len(text))
           print("Model used:", data.get("_fallbackModel") or data.get("modelVersion", "selected model"))
           PY
+      - name: Verify Gemini 3.1 Flash-Lite independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="000"
+          for attempt in $(seq 1 8); do
+            status=$(curl --silent --show-error --max-time 60 -w '%{http_code}' \
+              -H "Content-Type: application/json" \
+              --data '{"model":"gemini-3.1-flash-lite","contents":[{"role":"user","parts":[{"text":"Reply with exactly LITE_OK."}]}],"generationConfig":{"temperature":0,"maxOutputTokens":24}}' \
+              https://gemini-web-client-api.onrender.com/api/chat -o lite-chat.json) || status="000"
+            echo "Gemini 3.1 Flash-Lite HTTP status (attempt $attempt): $status"
+            [ "$status" = "200" ] && break
+            case "$status" in
+              502|503|504|000) sleep 8 ;;
+              *) break ;;
+            esac
+          done
+          if [ "$status" != "200" ]; then
+            echo "Gemini 3.1 Flash-Lite did not return HTTP 200."
+            head -c 2000 lite-chat.json || true
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          with open("lite-chat.json", encoding="utf-8") as f:
+              data = json.load(f)
+          text = "".join(p.get("text", "") for p in data.get("candidates", [{}])[0].get("content", {}).get("parts", []))
+          if not text.strip():
+              raise SystemExit("Gemini 3.1 Flash-Lite returned no text.")
+          if data.get("_fallbackModel"):
+              raise SystemExit("Gemini 3.1 Flash-Lite silently fell back to " + str(data["_fallbackModel"]))
+          print("Gemini 3.1 Flash-Lite independently returned a real response.")
+          print("Provider model version:", data.get("modelVersion", "not supplied"))
+          PY
       - name: Verify Cloudflare FLUX image generation
         shell: bash
         run: |
