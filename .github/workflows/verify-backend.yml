@@ -4,6 +4,12 @@ on:
     branches: [main]
     paths:
       - "server.js"
+      - "index.html"
+      - "manifest.json"
+      - "sw.js"
+      - "background-desktop.jpg"
+      - "background-mobile.jpg"
+      - "icons/**"
       - ".github/workflows/verify-backend.yml"
   workflow_dispatch:
 permissions:
@@ -54,7 +60,6 @@ jobs:
           print("Expected free-tier Gemini models are exposed by the backend.")
           PY
       - name: Verify a real Gemini chat response
-        continue-on-error: true
         run: |
           set -euo pipefail
           status=$(curl --silent --show-error --max-time 100 -w '%{http_code}' \
