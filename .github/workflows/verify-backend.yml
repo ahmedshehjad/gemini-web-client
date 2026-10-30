@@ -62,24 +62,34 @@ jobs:
       - name: Verify a real Gemini chat response
         run: |
           set -euo pipefail
-          status=$(curl --silent --show-error --max-time 100 -w '%{http_code}' \
-            -H "Content-Type: application/json" \
-            --data '{"model":"gemini-3.8-flash","contents":[{"role":"user","parts":[{"text":"Reply with exactly OK."}]}],"generationConfig":{"temperature":0,"maxOutputTokens":16}}' \
-            https://gemini-web-client-api.onrender.com/api/chat -o chat.json)
-          echo "Gemini API HTTP status: $status"
-          echo "CHAT_STATUS=$status" >> "$GITHUB_ENV"
+          status="000"
+          for attempt in $(seq 1 8); do
+            status=$(curl --silent --show-error --max-time 60 -w '%{http_code}' \
+              -H "Content-Type: application/json" \
+              --data '{"model":"gemini-3.8-flash","contents":[{"role":"user","parts":[{"text":"Reply with exactly OK."}]}],"generationConfig":{"temperature":0,"maxOutputTokens":16}}' \
+              https://gemini-web-client-api.onrender.com/api/chat -o chat.json) || status="000"
+            echo "Gemini API HTTP status (attempt $attempt): $status"
+            [ "$status" = "200" ] && break
+            case "$status" in
+              502|503|504|000) sleep 8 ;;
+              *) break ;;
+            esac
+          done
+          if [ "$status" != "200" ]; then
+            echo "Gemini chat endpoint did not return HTTP 200 after retries."
+            head -c 2000 chat.json || true
+            exit 1
+          fi
           cat chat.json
-          python3 - "$status" <<'PY'
-          import json, sys
-          status = sys.argv[1]
+          python3 - <<'PY'
+          import json
           with open("chat.json", encoding="utf-8") as f:
               data = json.load(f)
-          if status != "200":
-              raise SystemExit("Gemini chat endpoint returned HTTP " + status + ".")
           text = "".join(p.get("text", "") for p in data.get("candidates", [{}])[0].get("content", {}).get("parts", []))
           if not text.strip():
               raise SystemExit("Gemini returned no text.")
           print("Real Gemini chat succeeded. Response text length:", len(text))
+          print("Model used:", data.get("_fallbackModel") or data.get("modelVersion", "selected model"))
           PY
       - name: Verify Cloudflare FLUX image generation
         shell: bash
